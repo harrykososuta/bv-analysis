@@ -1,21 +1,20 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
-# アプリタイトル
-st.set_page_config(page_title="BV評価ツール", layout="wide")
-st.title("\u8840\u6db2\u30dc\u30ea\u30e5\u30fc\u30e0 (BV)\u8a55\u4fa1 & \u9664\u6c34\u30ea\u30b9\u30af\u691c\u77e5")
+st.set_page_config(page_title="BV計データ解析アプリ", layout="wide")
+st.title("\U0001f489 血液ボリューム (BV)・透析評価ツール")
 
-# ファイルアップロード
-uploaded_file = st.file_uploader("CSV\u30c7\u30fc\u30bf\u3092\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9", type=["csv"])
+uploaded_file = st.file_uploader("CSVデータをアップロード", type=["csv"])
+dw_input = st.number_input("DW (ドライウェイト) を入力してください", min_value=30.0, max_value=120.0, value=60.0, step=0.1)
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file, encoding="shift_jis")
-    st.write("\u30c7\u30fc\u30bf\u30b5\u30de\u30ea")
-    st.dataframe(df.head())
 
-    # ------
-    # 初期処理 ------
+    with st.expander("データサマリを表示（任意）"):
+        st.dataframe(df.head())
+
     df['Time(min)'] = df['treat-time[sec]'] / 60
     df['BV'] = df['dBV[%]*10'] / 10
     df['UF_rate'] = df['UFP-speed[L/h]*100'] / 100
@@ -25,88 +24,91 @@ if uploaded_file:
     df['Pulse'] = df['pulse[bpm]']
     df['MAP'] = df['DBP'] + (df['SBP'] - df['DBP']) / 3
 
-    # 体重の自動抽出（列に存在する場合）
-    if 'Weight(kg)' in df.columns:
-        weight_est = df['Weight(kg)'].iloc[0]
-        st.markdown(f"**抽出された体重**: {weight_est:.1f} kg")
-    else:
-        weight_est = 50  # 仮定
-        st.warning("体重情報が見つかりませんでした。仮の50kgで計算しています")
+    col1, col2 = st.columns(2)
 
-    # ------
-    # グラフ表示 ------
-    st.subheader(":bar_chart: BV, BP, UF, Pulse \u306e\u63a8\u79fb")
+    with col1:
+        st.subheader("BVの変化とリファレンス")
+        fig1, ax1 = plt.subplots()
+        ax1.plot(df['Time(min)'], df['BV'], label="BV", color='blue', linestyle='-', marker='o')
+        ax1.axhline(y=0, color='black', linestyle='--')
+        ax1.fill_between(df['Time(min)'], -20, -8, color='red', alpha=0.3, label="危険域")
+        ax1.fill_between(df['Time(min)'], -8, 0, color='yellow', alpha=0.3, label="注意域")
+        ax1.set_xlabel("時間 (分)")
+        ax1.set_ylabel("BV (%変化)")
+        ax1.set_title("BV動態と評価ゾーン")
+        ax1.legend()
+        st.pyplot(fig1)
 
-    # BV
-    fig1, ax1 = plt.subplots()
-    ax1.plot(df['Time(min)'], df['BV'], label="BV", color='blue')
-    ax1.axhline(y=95, color='red', linestyle='--', label="Lower Ref")
-    ax1.axhline(y=105, color='green', linestyle='--', label="Upper Ref")
-    ax1.set_xlabel("Time (min)")
-    ax1.set_ylabel("BV (%)")
-    ax1.legend()
-    st.pyplot(fig1)
+    with col2:
+        st.subheader("血圧とMAPの推移")
+        fig2, ax2 = plt.subplots()
+        ax2.plot(df['Time(min)'], df['SBP'], label="SBP", color='orange', marker='.')
+        ax2.plot(df['Time(min)'], df['DBP'], label="DBP", color='purple', marker='.')
+        ax2.plot(df['Time(min)'], df['MAP'], label="MAP", color='gray', linestyle='--')
+        ax2.set_xlabel("時間 (分)")
+        ax2.set_ylabel("血圧 (mmHg)")
+        ax2.legend()
+        st.pyplot(fig2)
 
-    # BP
-    fig2, ax2 = plt.subplots()
-    ax2.plot(df['Time(min)'], df['SBP'], label="SBP", color='orange')
-    ax2.plot(df['Time(min)'], df['DBP'], label="DBP", color='purple')
-    ax2.plot(df['Time(min)'], df['MAP'], label="MAP", color='gray')
-    ax2.set_xlabel("Time (min)")
-    ax2.set_ylabel("BP (mmHg)")
-    ax2.legend()
-    st.pyplot(fig2)
+    col3, col4 = st.columns(2)
 
-    # UF rate
-    fig3, ax3 = plt.subplots()
-    ax3.plot(df['Time(min)'], df['UF_rate'], label="UF Rate", color='green')
-    ax3.set_xlabel("Time (min)")
-    ax3.set_ylabel("UF Rate (L/h)")
-    ax3.legend()
-    st.pyplot(fig3)
+    with col3:
+        st.subheader("除水速度とPRR")
+        fig3, ax3 = plt.subplots()
+        ax3.plot(df['Time(min)'], df['UF_rate'], label="除水速度 (L/h)", color='green', marker='.')
+        if 'PRR[L/h]*100' in df.columns:
+            df['PRR'] = df['PRR[L/h]*100'] / 100
+            ax3.plot(df['Time(min)'], df['PRR'], label="PRR (L/h)", color='red', linestyle='--')
+        ax3.set_xlabel("時間 (分)")
+        ax3.set_ylabel("速度")
+        ax3.legend()
+        st.pyplot(fig3)
 
-    # Pulse
-    fig4, ax4 = plt.subplots()
-    ax4.plot(df['Time(min)'], df['Pulse'], label="Pulse", color='red')
-    ax4.set_xlabel("Time (min)")
-    ax4.set_ylabel("Pulse (bpm)")
-    ax4.legend()
-    st.pyplot(fig4)
+    with col4:
+        st.subheader("心拍数の推移")
+        fig4, ax4 = plt.subplots()
+        ax4.plot(df['Time(min)'], df['Pulse'], label="Pulse", color='red', marker='.')
+        ax4.set_xlabel("時間 (分)")
+        ax4.set_ylabel("拍動数 (bpm)")
+        ax4.legend()
+        st.pyplot(fig4)
 
-    # ------
-    # 評価 ------
-    st.subheader(":clipboard: \u8a55\u4fa1")
+    st.subheader("\U0001f4cb 評価結果")
 
-    # PRR
     prr = (df['BV'].iloc[-1] - df['BV'].iloc[0]) / (df['Time(min)'].iloc[-1] - df['Time(min)'].iloc[0])
     st.markdown(f"**PRR**: {prr:.2f} %/min")
     if prr < -0.05:
-        st.error("\u9664\u6c34\u901f\u5ea6が\u9ad8\u3059\u304e\u3001PRR\u304c\u4f4e\u4e0b\u3057\u3066\u3044\u307e\u3059")
+        st.error("PRRが低下 → 除水速度過剰の可能性")
     elif prr > 0:
-        st.warning("BV\u5897\u52a0 - DW\u8981\u691c\u8a0e")
+        st.warning("BVが増加傾向 → DW再評価が必要")
     else:
-        st.success("PRR\u306f\u9069\u5207")
+        st.success("PRRは安定")
 
-    # SBP変化
     sbp_drop = df['SBP'].iloc[0] - df['SBP'].min()
+    low_bp_events = (df['SBP'] < 100).sum()
     st.markdown(f"**収縮期血圧低下量**: {sbp_drop:.1f} mmHg")
-    if sbp_drop > 30:
-        st.error("\u53cd\u5fa9\u6027\u4f4e\u8840\u5727\u306e\u53ef\u80fd\u6027")
+    st.markdown(f"**SBP 100mmHg未満のイベント回数**: {low_bp_events} 回")
+    if sbp_drop >= 20:
+        st.error("SBP急降下 → 循環動態不安定")
+    elif sbp_drop >= 10:
+        st.warning("SBPがやや低下傾向")
     else:
-        st.success("BP\u5909\u5316\u306f\u53ef\u8a31\u7bc4\u56f2")
+        st.success("血圧変動は許容範囲")
 
-    # UF rate/kg
-    uf_rate_kg = df['UF_rate'].mean() * 1000 / weight_est
+    uf_rate_kg = df['UF_rate'].mean() * 1000 / dw_input
     st.markdown(f"**除水速度 (mL/hr/kg)**: {uf_rate_kg:.2f}")
-    if uf_rate_kg > 10:
-        st.error("除水速度が高すぎます")
+    if uf_rate_kg > 13:
+        st.error("危険レベルの除水速度")
+    elif uf_rate_kg > 10:
+        st.warning("やや高めの除水速度")
+    elif uf_rate_kg >= 5:
+        st.success("適切な除水速度")
     else:
-        st.success("除水速度は妥当です")
+        st.warning("除水速度が低すぎる可能性")
 
-    # Pulse変動
     pulse_var = df['Pulse'].max() - df['Pulse'].min()
-    st.markdown(f"**Pulse変動幅**: {pulse_var} bpm")
+    st.markdown(f"**Pulse変動幅**: {pulse_var:.1f} bpm")
     if pulse_var > 20:
-        st.warning("Pulse変動が大きいです。循環動態に注意")
+        st.warning("Pulse変動が大きく循環不安定の可能性")
     else:
         st.success("Pulseは安定しています")
